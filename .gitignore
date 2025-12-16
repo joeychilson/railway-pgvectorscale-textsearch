@@ -1,0 +1,15 @@
+.env
+.env.local
+.env.*.local
+*.log
+logs/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sql.gz
+*.dump
+*.bak
