@@ -2,6 +2,8 @@
 
 A Docker container for PostgreSQL 18 with pgvectorscale and pg_textsearch for deploying on Railway or any Docker host.
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/postgresql-with-pgvectorscale-and-pgtext?referralCode=NhCCIt&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
 ## Features
 
 - **PostgreSQL 18** - Latest PostgreSQL with modern features
