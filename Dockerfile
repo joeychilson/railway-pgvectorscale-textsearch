@@ -1,51 +1,79 @@
-FROM postgres:18 AS builder
+# syntax=docker/dockerfile:1
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    git \
-    curl \
-    libssl-dev \
-    pkg-config \
-    jq \
-    postgresql-server-dev-18 \
+# PostgreSQL 18 with pgvector, pgvectorscale, and pg_textsearch (BM25),
+# built for Railway.
+#
+# Base: Railway's official postgres-ssl image (self-signed SSL, pgBackRest
+# WAL archiving / PITR, volume-mount guards, stale-pid cleanup).
+#
+# Version pins — bump these to upgrade:
+ARG PG_MAJOR=18
+ARG BASE_IMAGE=ghcr.io/railwayapp-templates/postgres-ssl:18
+ARG PGVECTORSCALE_VERSION=0.9.0
+ARG PG_TEXTSEARCH_VERSION=1.3.1
+
+# -----------------------------------------------------------------------------
+# Builder: compile pg_textsearch (C, PGXS) against the same postgres the base
+# image is built from, and fetch pgvectorscale's prebuilt release .deb.
+# -----------------------------------------------------------------------------
+FROM postgres:${PG_MAJOR} AS builder
+ARG PG_MAJOR
+ARG PGVECTORSCALE_VERSION
+ARG PG_TEXTSEARCH_VERSION
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      postgresql-server-dev-${PG_MAJOR} \
+      curl \
+      ca-certificates \
+      unzip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+WORKDIR /build
 
-RUN cd /tmp && \
-    git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git && \
-    cd pgvector && \
-    make && \
-    make install
+RUN curl -fsSL "https://github.com/timescale/pg_textsearch/archive/refs/tags/v${PG_TEXTSEARCH_VERSION}.tar.gz" | tar xz \
+    && make -C "pg_textsearch-${PG_TEXTSEARCH_VERSION}" -j"$(nproc)" \
+    && make -C "pg_textsearch-${PG_TEXTSEARCH_VERSION}" install DESTDIR=/out
 
-RUN cd /tmp && \
-    git clone --branch 0.9.0 https://github.com/timescale/pgvectorscale.git && \
-    cd pgvectorscale/pgvectorscale && \
-    cargo install --locked cargo-pgrx --version $(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "pgrx") | .version') && \
-    cargo pgrx init --pg18 /usr/bin/pg_config && \
-    cargo pgrx install --release
+RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL -o /tmp/vectorscale.zip \
+       "https://github.com/timescale/pgvectorscale/releases/download/${PGVECTORSCALE_VERSION}/pgvectorscale-${PGVECTORSCALE_VERSION}-pg${PG_MAJOR}-${arch}.zip" \
+    && mkdir -p /debs \
+    && unzip /tmp/vectorscale.zip -d /debs \
+    && ls /debs/*.deb
 
-RUN cd /tmp && \
-    git clone https://github.com/timescale/pg_textsearch.git && \
-    cd pg_textsearch && \
-    make && \
-    make install
+# -----------------------------------------------------------------------------
+# Final image
+# -----------------------------------------------------------------------------
+FROM ${BASE_IMAGE}
+ARG PG_MAJOR
 
-FROM postgres:18
+COPY --from=builder /out/ /
+COPY --from=builder /debs/ /tmp/debs/
 
-COPY --from=builder /usr/share/postgresql/18/extension/vector--*.sql /usr/share/postgresql/18/extension/
-COPY --from=builder /usr/share/postgresql/18/extension/vector.control /usr/share/postgresql/18/extension/
-COPY --from=builder /usr/lib/postgresql/18/lib/vector.so /usr/lib/postgresql/18/lib/
+# pgvector from PGDG (already configured in the official postgres base image),
+# pgvectorscale from the fetched release .deb.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      postgresql-${PG_MAJOR}-pgvector \
+      /tmp/debs/*.deb \
+    && rm -rf /var/lib/apt/lists/* /tmp/debs
 
-COPY --from=builder /usr/share/postgresql/18/extension/vectorscale--*.sql /usr/share/postgresql/18/extension/
-COPY --from=builder /usr/share/postgresql/18/extension/vectorscale.control /usr/share/postgresql/18/extension/
-COPY --from=builder /usr/lib/postgresql/18/lib/vectorscale*.so /usr/lib/postgresql/18/lib/
+# Build-time sanity check: every advertised extension must be installable.
+RUN set -eux; \
+    for ext in vector vectorscale pg_textsearch; do \
+      test -f "/usr/share/postgresql/${PG_MAJOR}/extension/${ext}.control"; \
+    done; \
+    test -f "/usr/lib/postgresql/${PG_MAJOR}/lib/pg_textsearch.so"; \
+    ls "/usr/lib/postgresql/${PG_MAJOR}/lib/" | grep -q vectorscale
 
-COPY --from=builder /usr/share/postgresql/18/extension/pg_textsearch--*.sql /usr/share/postgresql/18/extension/
-COPY --from=builder /usr/share/postgresql/18/extension/pg_textsearch.control /usr/share/postgresql/18/extension/
-COPY --from=builder /usr/lib/postgresql/18/lib/pg_textsearch*.so /usr/lib/postgresql/18/lib/
+COPY --chmod=755 pgtext-lib.sh /usr/local/bin/pgtext-lib.sh
+COPY --chmod=755 entrypoint.sh /usr/local/bin/pgtext-entrypoint.sh
+# "zz-" prefix: docker-entrypoint runs initdb.d scripts in sorted order and the
+# base image's init-ssl.sh appends its own shared_preload_libraries line to
+# postgresql.conf — ours must run after it so our (superset) list wins.
+COPY --chmod=755 zz-init-textsearch.sh /docker-entrypoint-initdb.d/zz-init-textsearch.sh
 
-COPY --chmod=644 init-extensions.sql /docker-entrypoint-initdb.d/
-
-EXPOSE 5432
+ENTRYPOINT ["pgtext-entrypoint.sh"]
+# Redeclared because setting ENTRYPOINT resets any inherited CMD. Port is
+# pinned to 5432 (Railway's TCP proxy expects it), matching the base image.
+CMD ["postgres", "-p", "5432", "-c", "listen_addresses=*"]
