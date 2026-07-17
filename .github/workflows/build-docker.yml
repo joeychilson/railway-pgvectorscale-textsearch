@@ -68,7 +68,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Dual-publish: the repo was renamed from railway-pg-vectorscale-textsearch;
+          # deployments created before the rename pull (and auto-update from) the old
+          # package name, which GHCR cannot redirect. Do not remove the old name.
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.REGISTRY }}/joeychilson/railway-pg-vectorscale-textsearch
           flavor: |
             latest=false
           tags: |

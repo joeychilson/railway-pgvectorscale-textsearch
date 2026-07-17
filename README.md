@@ -1,4 +1,4 @@
-# railway-pg-vectorscale-textsearch
+# railway-pgvectorscale-textsearch
 
 **PostgreSQL 18 with [pgvector](https://github.com/pgvector/pgvector),
 [pgvectorscale](https://github.com/timescale/pgvectorscale), and
@@ -43,6 +43,11 @@ initialized by older versions of this image that didn't set it.
 - Railway's [image auto-updates](https://docs.railway.com/deployments/image-auto-updates)
   work with the semver tags: enable them on your service to be offered
   patch/minor bumps during a maintenance window you choose.
+- This repo was previously named `railway-pg-vectorscale-textsearch`. Every
+  release is still published under the old image name
+  (`ghcr.io/joeychilson/railway-pg-vectorscale-textsearch`) as well, so
+  deployments created before the rename keep receiving updates. New
+  deployments should use the current name.
 
 ## Usage examples
 
@@ -102,7 +107,7 @@ SET diskann.query_rescore = 50;
 ## Deploying manually (outside the template)
 
 1. Create a service from the image
-   `ghcr.io/joeychilson/railway-pg-vectorscale-textsearch:<version>`.
+   `ghcr.io/joeychilson/railway-pgvectorscale-textsearch:<version>`.
 2. **Attach a volume at `/var/lib/postgresql/data`** (the base image refuses
    to boot on Railway without it — this protects your data).
 3. Set variables:
