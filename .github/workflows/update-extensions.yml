@@ -1,0 +1,108 @@
+name: update-extensions
+
+# Weekly: check GitHub releases for the pinned extensions (pgvectorscale,
+# pg_textsearch) and open a PR bumping the Dockerfile ARG when one is stale.
+# CI smoke-tests the PR; a human merges and cuts the release — extension
+# releases deserve a changelog glance (index formats, catalog migrations)
+# before they reach a database image, so publishing stays deliberate.
+#
+# PRs are opened with the default GITHUB_TOKEN, which requires the repo
+# setting "Allow GitHub Actions to create and approve pull requests".
+# GitHub suppresses `pull_request` events for GITHUB_TOKEN-created PRs, so
+# the last step dispatches the build workflow on the bump branch instead
+# (workflow_dispatch is exempt from that suppression). No PAT to manage
+# or expire.
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: update-extensions
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pgvectorscale
+            arg: PGVECTORSCALE_VERSION
+            repo: timescale/pgvectorscale
+            tag_prefix: ""
+          - name: pg_textsearch
+            arg: PG_TEXTSEARCH_VERSION
+            repo: timescale/pg_textsearch
+            tag_prefix: "v"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read current pin
+        id: current
+        run: |
+          version=$(sed -nE 's/^ARG ${{ matrix.arg }}=(.+)$/\1/p' Dockerfile)
+          if [ -z "$version" ]; then
+            echo "::error::ARG ${{ matrix.arg }} not found in Dockerfile"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The full-string regex is both a format filter and an injection
+      # guard: the tag is external input that later lands in shell lines,
+      # so only strict X.Y.Z may pass.
+      - name: Find latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/${{ matrix.repo }}/releases/latest" --jq '.tag_name')
+          version="${tag#${{ matrix.tag_prefix }}}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::unexpected release tag from ${{ matrix.repo }}: '$tag'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Update Dockerfile pin
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        env:
+          NEW_VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          sed -i -E "s|^ARG ${{ matrix.arg }}=.*|ARG ${{ matrix.arg }}=${NEW_VERSION}|" Dockerfile
+          grep -qxF "ARG ${{ matrix.arg }}=${NEW_VERSION}" Dockerfile
+
+      - name: Open pull request
+        id: pr
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: bump-${{ matrix.name }}
+          commit-message: "Bump ${{ matrix.name }} to ${{ steps.upstream.outputs.version }}"
+          title: "Bump ${{ matrix.name }} to ${{ steps.upstream.outputs.version }}"
+          body: |
+            Automated bump of `${{ matrix.name }}` from
+            `${{ steps.current.outputs.version }}` to `${{ steps.upstream.outputs.version }}`.
+
+            Release notes: https://github.com/${{ matrix.repo }}/releases/tag/${{ matrix.tag_prefix }}${{ steps.upstream.outputs.version }}
+
+            CI smoke-tests this PR. Before merging, skim the release notes
+            for index-format or catalog changes — the boot-time
+            `ALTER EXTENSION UPDATE` pass delivers this to every existing
+            database that upgrades its image. After merging, cut a release
+            to publish; then update the Railway template's pinned image tag
+            so new deploys get it.
+          delete-branch: true
+
+      - name: Run CI on the bump branch
+        if: steps.pr.outputs.pull-request-operation == 'created' || steps.pr.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build-docker.yml --ref bump-${{ matrix.name }} -R ${{ github.repository }}
