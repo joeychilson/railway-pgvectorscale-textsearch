@@ -10,7 +10,7 @@
 ARG PG_MAJOR=18
 ARG BASE_IMAGE=ghcr.io/railwayapp-templates/postgres-ssl:18
 ARG PGVECTORSCALE_VERSION=0.9.0
-ARG PG_TEXTSEARCH_VERSION=1.3.1
+ARG PG_TEXTSEARCH_VERSION=1.4.0
 
 # -----------------------------------------------------------------------------
 # Builder: compile pg_textsearch (C, PGXS) against the same postgres the base
