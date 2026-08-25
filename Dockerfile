@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 
 # PostgreSQL 18 with pgvector, pgvectorscale, and pg_textsearch (BM25),
 # built for Railway.

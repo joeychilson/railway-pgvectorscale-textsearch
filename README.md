@@ -1,6 +1,6 @@
 # pgvectorscale and pg_textsearch on Railway
 
-[![CI](https://github.com/joeychilson/railway-pgvectorscale-textsearch/actions/workflows/build-docker.yml/badge.svg)](https://github.com/joeychilson/railway-pgvectorscale-textsearch/actions/workflows/build-docker.yml)
+[![CI](https://github.com/joeychilson/railway-pgvectorscale-textsearch/actions/workflows/ci.yml/badge.svg)](https://github.com/joeychilson/railway-pgvectorscale-textsearch/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/joeychilson/railway-pgvectorscale-textsearch)](https://github.com/joeychilson/railway-pgvectorscale-textsearch/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -134,7 +134,9 @@ existing volume directly between major versions.
 
 A weekly workflow checks for new pgvectorscale and pg_textsearch releases and
 opens pull requests. Each update is smoke-tested and reviewed before a GitHub
-release publishes the image.
+release publishes the image. The wrapper version is independent from
+PostgreSQL and the extensions; see [RELEASING.md](RELEASING.md) for the release
+policy.
 
 This repository was previously named `railway-pg-vectorscale-textsearch`.
 Releases are also published under the previous GHCR package name so existing
@@ -173,8 +175,8 @@ pg_dump -Fc "$OLD_DATABASE_URL" | \
 ## Development
 
 ```text
-docker compose up -d --build
-./test/smoke-test.sh $(docker compose images -q postgres)
+docker build -t railway-pgvectorscale-textsearch:test .
+./test/smoke-test.sh railway-pgvectorscale-textsearch:test
 ```
 
 The smoke test verifies SSL, the preload configuration, all three extensions,

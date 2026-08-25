@@ -1,0 +1,94 @@
+name: update-upstream
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: update-upstream
+  cancel-in-progress: false
+
+jobs:
+  extensions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pgvectorscale
+            arg: PGVECTORSCALE_VERSION
+            repo: timescale/pgvectorscale
+            tag_prefix: ""
+          - name: pg_textsearch
+            arg: PG_TEXTSEARCH_VERSION
+            repo: timescale/pg_textsearch
+            tag_prefix: v
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Read current version
+        id: current
+        run: |
+          version="$(sed -nE 's/^ARG ${{ matrix.arg }}=(.+)$/\1/p' Dockerfile)"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Unexpected ${{ matrix.arg }}: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Find latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_PREFIX: ${{ matrix.tag_prefix }}
+        run: |
+          tag="$(gh api "repos/${{ matrix.repo }}/releases/latest" --jq .tag_name)"
+          version="$tag"
+          if [ -n "$TAG_PREFIX" ]; then
+            version="${tag#"$TAG_PREFIX"}"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Unexpected release tag from ${{ matrix.repo }}: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Update Dockerfile pin
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        env:
+          VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          sed -i -E "s|^ARG ${{ matrix.arg }}=.*|ARG ${{ matrix.arg }}=${VERSION}|" Dockerfile
+          grep -qxF "ARG ${{ matrix.arg }}=${VERSION}" Dockerfile
+
+      - name: Open pull request
+        id: pr
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        uses: peter-evans/create-pull-request@v8.1.1
+        with:
+          branch: update/${{ matrix.name }}
+          commit-message: "Bump ${{ matrix.name }} to ${{ steps.upstream.outputs.version }}"
+          title: "Bump ${{ matrix.name }} to ${{ steps.upstream.outputs.version }}"
+          body: |
+            Updates `${{ matrix.name }}` from `${{ steps.current.outputs.version }}` to `${{ steps.upstream.outputs.version }}`.
+
+            Release notes: https://github.com/${{ matrix.repo }}/releases/tag/${{ steps.upstream.outputs.tag }}
+
+            CI smoke-tests this change. Review extension migration and index compatibility notes before merging, then publish a wrapper patch release.
+          delete-branch: true
+
+      - name: Run CI on update branch
+        if: steps.pr.outputs.pull-request-operation == 'created' || steps.pr.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BRANCH: ${{ steps.pr.outputs.pull-request-branch }}
+        run: gh workflow run ci.yml --ref "$PR_BRANCH" --repo "${{ github.repository }}"

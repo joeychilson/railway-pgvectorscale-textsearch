@@ -1,10 +1,10 @@
-.env
-.env.local
-.env.*.local
-*.log
-logs/
 .DS_Store
 Thumbs.db
+.env
+.env.*
+!.env.example
+*.log
+logs/
 .vscode/
 .idea/
 *.swp
