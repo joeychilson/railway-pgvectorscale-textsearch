@@ -55,7 +55,7 @@ jobs:
         uses: docker/setup-buildx-action@v4.3.0
 
       - name: Build test image
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           load: true
@@ -96,7 +96,7 @@ jobs:
             io.railway.template.pg-textsearch-version=${{ steps.upstream.outputs.textsearch }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
