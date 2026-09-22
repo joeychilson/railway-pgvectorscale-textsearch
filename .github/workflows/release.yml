@@ -52,7 +52,7 @@ jobs:
           echo "textsearch=$textsearch" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
 
       - name: Build test image
         uses: docker/build-push-action@v7.3.0
