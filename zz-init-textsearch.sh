@@ -7,6 +7,7 @@
 # after it in postgresql.conf so our superset list wins.
 set -e
 
+# shellcheck source=pgtext-lib.sh
 source /usr/local/bin/pgtext-lib.sh
 
 pgtext_write_managed_conf "$PGDATA/postgresql.conf"

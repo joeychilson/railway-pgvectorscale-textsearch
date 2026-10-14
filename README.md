@@ -1,66 +1,48 @@
-# pgvectorscale and pg_textsearch on Railway
+# PostgreSQL with pgvectorscale and pg_textsearch on Railway
 
-[![CI](https://github.com/joeychilson/railway-pgvectorscale-textsearch/actions/workflows/ci.yml/badge.svg)](https://github.com/joeychilson/railway-pgvectorscale-textsearch/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/joeychilson/railway-pgvectorscale-textsearch)](https://github.com/joeychilson/railway-pgvectorscale-textsearch/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A Railway template for running PostgreSQL 18 with
+A Railway template for PostgreSQL 18 with
 [pgvector](https://github.com/pgvector/pgvector),
 [pgvectorscale](https://github.com/timescale/pgvectorscale), and
 [pg_textsearch](https://github.com/timescale/pg_textsearch) for vector, BM25,
-and hybrid search.
+and hybrid search. The image builds on Railway's
+[`postgres-ssl`](https://github.com/railwayapp-templates/postgres-ssl) image, so
+it keeps SSL, pgBackRest WAL archiving, point-in-time recovery, and Railway's
+volume checks.
 
-The image extends Railway's
-[`postgres-ssl`](https://github.com/railwayapp-templates/postgres-ssl) image
-while preserving SSL, pgBackRest WAL archiving, point-in-time recovery, and
-Railway's volume conventions.
-
-## Deployment
+## Deploy
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/postgresql-with-pgvectorscale-and-pgtext?referralCode=NhCCIt&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-The template creates all three extensions automatically:
+The template creates one `Postgres` service with:
 
-| Extension | Purpose |
+- The `ghcr.io/joeychilson/railway-pgvectorscale-textsearch` image for amd64 and
+  arm64.
+- A volume at `/var/lib/postgresql/data`.
+- A generated `POSTGRES_PASSWORD`.
+- `DATABASE_URL` for private networking and `DATABASE_PUBLIC_URL` through a TCP
+  proxy on port `5432`.
+- The `vector`, `vectorscale`, and `pg_textsearch` extensions, created in the
+  default database.
+
+| Extension | Adds |
 |---|---|
-| `vector` | Vector values, similarity search, and HNSW and IVFFlat indexes |
+| `vector` | Vector types, similarity search, and HNSW and IVFFlat indexes |
 | `vectorscale` | StreamingDiskANN indexes and statistical binary quantization |
 | `pg_textsearch` | BM25 ranking with Block-Max WAND |
 
-The image also manages `shared_preload_libraries` for `pg_textsearch` on new
-and existing volumes.
+pg_textsearch must be in `shared_preload_libraries`. The image adds it on new
+volumes and on every boot of an existing one.
 
-For a manual Railway deployment:
+To deploy the image without the template, use
+`ghcr.io/joeychilson/railway-pgvectorscale-textsearch:<version>`, attach a
+volume at `/var/lib/postgresql/data`, and set the variables below. The base
+image refuses to start on Railway without that volume, so a missing volume
+can't lose data.
 
-1. Use `ghcr.io/joeychilson/railway-pgvectorscale-textsearch:<version>`.
-2. Attach a volume at `/var/lib/postgresql/data`.
-3. Configure the PostgreSQL variables below.
-4. Add a TCP proxy on port `5432` only when external access is required.
-
-The base image refuses to start on Railway without the volume to protect the
-database from accidental data loss.
-
-## Configuration
-
-| Variable | Value | Purpose |
-|---|---|---|
-| `PGDATA` | `/var/lib/postgresql/data/pgdata` | PostgreSQL data directory |
-| `POSTGRES_USER` | `postgres` | Database user |
-| `POSTGRES_PASSWORD` | Secret | Required database password |
-| `POSTGRES_DB` | `railway` | Default database |
-| `DATABASE_URL` | Template-generated | Private Railway connection string |
-| `POSTGRES_ENSURE_EXTENSIONS` | `on` | Set to `off` to disable automatic extension creation and updates |
-| `SSL_CERT_DAYS` | `820` | Self-signed certificate validity |
-| `WAL_ARCHIVE_*` | Optional | pgBackRest WAL archiving settings |
-| `WAL_RECOVER_FROM_*` | Optional | pgBackRest recovery settings |
-
-The template uses this private connection string:
-
-```text
-postgresql://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_PRIVATE_DOMAIN}}:5432/${{POSTGRES_DB}}
-```
-
-## Examples
+## Usage
 
 ### Vector search
 
@@ -90,8 +72,7 @@ ORDER BY content <@> 'search query'
 LIMIT 10;
 ```
 
-Lower `<@>` scores are better matches because the operator returns the
-negative BM25 score.
+`<@>` returns the negative BM25 score, so lower values are better matches.
 
 ### Hybrid search
 
@@ -116,47 +97,66 @@ SET diskann.query_search_list_size = 100;
 SET diskann.query_rescore = 50;
 ```
 
+## Configuration
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `PGDATA` | `/var/lib/postgresql/data/pgdata` | Data directory |
+| `POSTGRES_USER` | `postgres` | Database user |
+| `POSTGRES_PASSWORD` | Generated | Database password |
+| `POSTGRES_DB` | `railway` | Default database |
+| `DATABASE_URL` | Generated | Connection string over private networking |
+| `DATABASE_PUBLIC_URL` | Generated | Connection string through the TCP proxy |
+| `POSTGRES_ENSURE_EXTENSIONS` | `on` | Set to `off` to stop creating and updating extensions on boot |
+| `SSL_CERT_DAYS` | `820` | Lifetime of the self-signed certificate |
+| `WAL_ARCHIVE_*`, `WAL_RECOVER_FROM_*` | Optional | pgBackRest archiving and recovery settings from `postgres-ssl` |
+
+Other services in the project connect with:
+
+```text
+postgresql://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_PRIVATE_DOMAIN}}:5432/${{POSTGRES_DB}}
+```
+
 ## Updates
 
-Images are published only from GitHub releases. Exact `X.Y.Z` and
-`sha-<commit>` tags are immutable, while `X.Y` tracks the latest patch release
-in that minor line. The historical `latest` tag is frozen at the original
-build and does not receive updates. Use the `X.Y` channel with Railway image
-auto-updates to receive reviewed patch releases.
+Each release is published as
+`ghcr.io/joeychilson/railway-pgvectorscale-textsearch:X.Y.Z` and moves the `X.Y`
+tag to it. The Railway template deploys `X.Y` with patch auto-updates on, so a
+deployment that keeps that setting picks up patch releases in Railway's nightly
+update window. A minor or major release starts a new `X.Y` tag, and its release
+notes say what to change before you move to it.
 
-On each boot, a background task creates missing extensions and runs
-`ALTER EXTENSION ... UPDATE` when the image contains newer extension SQL. This
-keeps existing databases aligned with the libraries shipped in the image.
+Releases are also published as `ghcr.io/joeychilson/railway-pg-vectorscale-textsearch`,
+the name from before the repo was renamed, so older deployments keep getting
+updates. New deployments should use the current name.
 
-PostgreSQL minor upgrades can use the existing volume. A PostgreSQL major
-upgrade requires a dump and restore or logical replication; never switch an
-existing volume directly between major versions.
+On every boot, a background job creates missing extensions and runs
+`ALTER EXTENSION ... UPDATE` when the image ships newer extension SQL, so
+existing databases stay in step with the libraries in the image. PostgreSQL
+minor versions upgrade in place. A PostgreSQL major upgrade needs a dump and
+restore or logical replication; never point an existing volume at a new major
+version.
 
-A weekly workflow checks for new pgvectorscale and pg_textsearch releases and
-opens pull requests. Each update is smoke-tested and reviewed before a GitHub
-release publishes the image. The wrapper version is independent from
-PostgreSQL and the extensions; see [RELEASING.md](RELEASING.md) for the release
-policy.
+[Renovate](https://docs.renovatebot.com) bumps PostgreSQL minor versions,
+pgvector, pgvectorscale, and pg_textsearch. The bump merges after the smoke
+test passes on amd64 and arm64, and the merge publishes a patch release.
+pgvectorscale minor updates wait for review while it is on 0.x. The release
+policy for all of these templates is in
+[railway-templates](https://github.com/joeychilson/railway-templates#releases).
 
-This repository was previously named `railway-pg-vectorscale-textsearch`.
-Releases are also published under the previous GHCR package name so existing
-deployments continue to receive updates. New deployments should use the current
-name.
+### Upgrading from the original image
 
-## Upgrading from the original image
+The original `latest` and `sha-3a11be2` images have PostgreSQL 18 without SSL
+and an unversioned development build of pg_textsearch (`0.1.1-dev`). They stay
+available but get no updates.
 
-The original `latest` and `sha-3a11be2` images contain PostgreSQL 18 without
-SSL and an unversioned development build of pg_textsearch (`0.1.1-dev`). Those
-images remain available but do not receive updates.
+The PostgreSQL major version is the same, so a deployment without BM25 indexes
+can switch straight to a current tag. On its first boot the image creates SSL
+certificates, updates `shared_preload_libraries`, and replaces the development
+extension when nothing depends on it.
 
-Because the PostgreSQL major version is unchanged, deployments without BM25
-indexes can switch directly to a current version tag. On first boot, the image
-creates SSL certificates, updates `shared_preload_libraries`, and replaces the
-development extension when nothing depends on it.
-
-If the old database contains BM25 indexes, remove them before recreating the
-extension because their on-disk format is incompatible with the released
-library:
+BM25 indexes from the development build use an incompatible on-disk format.
+Drop them before recreating the extension:
 
 ```sql
 DROP INDEX <bm25_index>;
@@ -165,11 +165,10 @@ CREATE EXTENSION pg_textsearch;
 -- Recreate the BM25 indexes.
 ```
 
-A dump and restore into a new service is also supported:
+A dump and restore into a new service also works:
 
 ```text
-pg_dump -Fc "$OLD_DATABASE_URL" | \
-  pg_restore -d "$NEW_DATABASE_URL" --no-owner
+pg_dump -Fc "$OLD_DATABASE_URL" | pg_restore -d "$NEW_DATABASE_URL" --no-owner
 ```
 
 ## Development
@@ -179,9 +178,9 @@ docker build -t railway-pgvectorscale-textsearch:test .
 ./test/smoke-test.sh railway-pgvectorscale-textsearch:test
 ```
 
-The smoke test verifies SSL, the preload configuration, all three extensions,
-extension-version alignment, StreamingDiskANN and BM25 queries, and data
-persistence after a restart.
+The smoke test checks SSL, the preload setting, all three extensions and their
+versions, StreamingDiskANN and BM25 queries, data after a restart, and a clean
+shutdown on SIGTERM.
 
 ## License
 

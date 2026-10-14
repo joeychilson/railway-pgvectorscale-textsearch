@@ -5,6 +5,7 @@
 # `set -e` — a failure in our extras must never stop postgres from booting
 # with whatever configuration is already on disk.
 
+# shellcheck source=pgtext-lib.sh
 source /usr/local/bin/pgtext-lib.sh
 
 # The base wrapper (re)generates SSL certificates when they're missing,
