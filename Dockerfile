@@ -9,7 +9,7 @@ ARG PGVECTOR_VERSION=0.8.7
 # renovate: datasource=github-releases packageName=timescale/pgvectorscale depName=pgvectorscale
 ARG PGVECTORSCALE_VERSION=0.9.1
 # renovate: datasource=github-releases packageName=timescale/pg_textsearch depName=pg_textsearch extractVersion=^v(?<version>.+)$
-ARG PG_TEXTSEARCH_VERSION=1.5.1
+ARG PG_TEXTSEARCH_VERSION=1.6.0
 
 # Build against the same PostgreSQL the final image runs. PG_MAJOR comes from
 # the base image.
